@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deauville Festival du Rire</title>
+<style>
+:root{--bg:#fbf4e6;--ink:#1d2a3a;--sea:#0f4c5c;--sun:#f2a541;--red:#d1495b;--card:#fff;--mut:#6b7480}
+@media(prefers-color-scheme:dark){:root{--bg:#10202b;--ink:#f4ead8;--card:#183241;--mut:#9fb0bb}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 Georgia,serif}
+header{background:var(--sea);color:#fff;padding:2rem 1.2rem 1.4rem;border-bottom:6px solid var(--sun)}
+h1{margin:0;font-size:clamp(1.8rem,5vw,3rem);letter-spacing:-.5px}h1 em{color:var(--sun)}
+header p{margin:.3rem 0 0;opacity:.85}
+main{max-width:1000px;margin:auto;padding:1rem 1.2rem 3rem}
+.bar{display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0}
+button,select,input{font:inherit;padding:.45rem .8rem;border-radius:999px;border:2px solid var(--sea);background:var(--card);color:var(--ink)}
+button{cursor:pointer}button.on{background:var(--sea);color:#fff}
+.now{background:var(--sun);color:#1d2a3a;padding:.8rem 1rem;border-radius:12px;margin:1rem 0}
+.card{background:var(--card);border-left:6px solid var(--sea);border-radius:10px;padding:.8rem 1rem;margin:.7rem 0;box-shadow:0 1px 4px #0002}
+.card.workshop{border-color:var(--sun)}.card.lineup{border-color:var(--red)}
+.t{font-weight:bold;font-size:1.1rem}.m{color:var(--mut);font-size:.9rem}
+.tag{font-size:.7rem;text-transform:uppercase;background:var(--sea);color:#fff;border-radius:4px;padding:1px 6px}
+h2{margin-top:2rem;border-bottom:2px solid var(--sun)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.7rem}
+a{color:var(--red);cursor:pointer}.err{color:var(--red);font-weight:bold}
+form{display:grid;gap:.5rem;max-width:480px}
+</style></head><body>
+<header><h1 id="name">Festival <em>du Rire</em></h1><p id="dates"></p></header>
+<main>
+<div class="now" id="now"></div>
+<div class="bar" id="days"></div>
+<div class="bar"><select id="venue"><option value="">All venues</option></select></div>
+<div id="prog"></div>
+<h2 id="artistTitle">Artists</h2><div class="grid" id="artists"></div>
+<h2>Admin: add a solo show</h2>
+<form id="f">
+<input name="title" placeholder="Title" required>
+<select name="artist" id="fa"></select><select name="venue" id="fv"></select>
+<input name="start" type="datetime-local" required>
+<input name="duration_minutes" type="number" placeholder="Minutes" value="45" required>
+<button>Schedule</button><div id="msg"></div></form>
+</main>
+<script>
+const $=id=>document.getElementById(id);let day="",venue="",fest;
+const api=async(u,o)=>{const r=await fetch(u,o);if(r.status==204)return;const j=await r.json();if(!r.ok)throw Error(j.detail||"Error");return j};
+const hm=s=>s.slice(11,16);
+const card=p=>`<div class="card ${p.kind}"><span class="tag">${p.kind}</span> <span class="t">${p.title}</span>
+<div class="m">${hm(p.start)}–${hm(p.end)} · ${p.venue_name} · ${p.artists.map(a=>`<a onclick="showArtist('${a.slug}')">${a.name}</a>`).join(", ")}
+${p.places_left!=null?` · ${p.places_left} places left`:""}</div>
+${p.description?`<div>${p.description}</div>`:""}
+<a onclick="cancelP('${p.id}')" class="m">cancel</a></div>`;
+async function load(){
+ const q=new URLSearchParams();if(day)q.set("day",day);if(venue)q.set("venue",venue);
+ const list=await api("/api/programme?"+q);
+ $("prog").innerHTML=list.map(card).join("")||"<p>Nothing scheduled.</p>";
+ const n=await api("/api/now?at="+new Date().toISOString().slice(0,16));
+ $("now").innerHTML=n.now_playing.length?"On stage now: "+n.now_playing.map(p=>p.title).join(", ")
+  :"Nothing on stage right now"+(n.up_next[0]?" · next: "+n.up_next[0].title:"");}
+async function showArtist(s){const a=await api("/api/artists/"+s);
+ $("artistTitle").scrollIntoView();$("prog").innerHTML=`<h2>${a.name}</h2><p>${a.bio}</p>`+a.performances.map(card).join("")+`<a onclick="load()">← back to programme</a>`}
+async function cancelP(id){if(confirm("Cancel this performance?")){await api("/api/performances/"+id,{method:"DELETE"});load()}}
+async function init(){
+ fest=await api("/api/festival");$("name").innerHTML=fest.name.replace("Festival du Rire","Festival <em>du Rire</em>");
+ $("dates").textContent=`${fest.first_day} → ${fest.last_day}`;
+ day=fest.days[0];
+ $("days").innerHTML=["",...fest.days].map(d=>`<button data-d="${d}" class="${d==day?"on":""}">${d?new Date(d+"T12:00").toLocaleDateString("en",{weekday:"short",day:"numeric",month:"short"}):"All"}</button>`).join("");
+ $("days").onclick=e=>{if(e.target.dataset.d===undefined)return;day=e.target.dataset.d;[...$("days").children].forEach(b=>b.classList.toggle("on",b==e.target));load()};
+ const v=await api("/api/venues");
+ $("venue").innerHTML+=v.map(x=>`<option value="${x.slug}">${x.name} (${x.capacity})</option>`).join("");
+ $("fv").innerHTML=v.map(x=>`<option value="${x.slug}">${x.name}</option>`).join("");
+ $("venue").onchange=e=>{venue=e.target.value;load()};
+ const a=await api("/api/artists");
+ $("artists").innerHTML=a.map(x=>`<div class="card"><a class="t" onclick="showArtist('${x.slug}')">${x.name}</a><div class="m">${x.bio}</div></div>`).join("");
+ $("fa").innerHTML=a.map(x=>`<option value="${x.slug}">${x.name}</option>`).join("");
+ load();}
+$("f").onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
+ d.kind="solo";d.duration_minutes=+d.duration_minutes;$("msg").className="";
+ try{await api("/api/performances",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});$("msg").textContent="Scheduled ✔";load()}
+ catch(x){$("msg").className="err";$("msg").textContent=x.message}};
+init();
+</script></body></html>
